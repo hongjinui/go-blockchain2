@@ -8,7 +8,7 @@ import (
 	"math/big"
 )
 
-const targetBits = 20
+const targetBits = 15
 
 var (
 	target   big.Int
