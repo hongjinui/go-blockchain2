@@ -23,14 +23,10 @@ func (cli *CLI) getBalance(address string) {
 
 	balance := 0
 
-	utxs := bc.FindUnspentTransaction(address)
+	UTXOs := bc.FindUTXO(address)
 
-	for _, tx := range utxs {
-		for _, out := range tx.Vout {
-			if out.Unlock(address) {
-				balance += out.Value
-			}
-		}
+	for _, out := range UTXOs {
+		balance += out.Value
 	}
 	fmt.Println("Balance of '%s': %d\n", address, balance)
 
@@ -79,7 +75,7 @@ func (cli *CLI) send(from, to string, amount int) {
 	defer bc.db.Close()
 
 	tx := NewUTXOTransaction(from, to, amount, bc)
-	bc.AddBlock([]*Transaction{tx})
+	bc.MineBlock([]*Transaction{tx})
 	fmt.Println("SUCCESS!")
 }
 
