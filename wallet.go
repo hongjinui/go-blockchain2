@@ -7,7 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/gob"
-	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -18,10 +18,15 @@ import (
 const version = byte(0x00)
 const walletFile = "wallet.dat"
 
-// Wallet
+// Wallet stors private and public keys
 type Wallet struct {
 	PrivateKey ecdsa.PrivateKey
 	PublicKey  ecdsa.PublicKey
+}
+
+//Wallets stores a collection of wallets
+type Wallets struct {
+	Wallets map[string]*Wallet
 }
 
 // GetAddress returns wallet address
@@ -44,33 +49,12 @@ func (w Wallet) GetAddress() []byte {
 	return address
 }
 
-// SaveToFile saves the wallet to a file
-func (w Wallet) SaveToFile() {
-	var content bytes.Buffer
-
-	gob.Register(w.PrivateKey.Curve)
-	encoded := gob.NewEncoder(&content)
-	err := encoded.Encode(w)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	err = ioutil.WriteFile(walletFile, content.Bytes(), 0644)
-	if err != nil {
-		log.Panic(err)
-	}
-}
-
 // NewWallet creates and returns a Wallet
-func NewWallet() (*Wallet, error) {
-	if _, err := os.Stat(walletFile); !os.IsNotExist(err) {
-		return nil, errors.New("Wallet already exists")
-	}
-
+func NewWallet() *Wallet {
 	private, public := newKeyPair()
 	wallet := Wallet{private, public}
 
-	return &wallet, nil
+	return &wallet
 }
 
 func newKeyPair() (ecdsa.PrivateKey, ecdsa.PublicKey) {
@@ -82,7 +66,82 @@ func newKeyPair() (ecdsa.PrivateKey, ecdsa.PublicKey) {
 	return *private, private.PublicKey
 }
 
-// checksum
+//CreateWallet adds Wallet to Wallets
+func (ws *Wallets) CreateWallet() string {
+	wallet := NewWallet()
+	address := fmt.Sprintf("%s", wallet.GetAddress())
+
+	ws.Wallets[address] = wallet
+	return address
+}
+
+// SaveToFile saves the wallet to a file
+func (ws Wallets) SaveToFile() {
+	var content bytes.Buffer
+
+	gob.Register(elliptic.P256())
+	encoded := gob.NewEncoder(&content)
+	err := encoded.Encode(ws)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	err = ioutil.WriteFile(walletFile, content.Bytes(), 0644)
+	if err != nil {
+		log.Panic(err)
+	}
+}
+
+// LoadFromFile loads wallets from the file
+func (ws *Wallets) LoadFromFile() error {
+	if _, err := os.Stat(walletFile); os.IsNotExist(err) {
+		return err
+	}
+
+	fileContent, err := ioutil.ReadFile(walletFile)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	var wallets Wallets
+	gob.Register(elliptic.P256())
+	decoder := gob.NewDecoder(bytes.NewReader(fileContent))
+	err = decoder.Decode(&wallets)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	ws.Wallets = wallets.Wallets
+	return nil
+}
+
+// GetAddresses returns an array of addresses stored in the wallet file
+func (ws *Wallets) GetAddresses() []string {
+	var addresses []string
+
+	for address := range ws.Wallets {
+		addresses = append(addresses, address)
+
+	}
+	return addresses
+}
+
+// NewWallets
+func NewWallets() (*Wallets, error) {
+	wallets := Wallets{}
+	wallets.Wallets = make(map[string]*Wallet)
+
+	err := wallets.LoadFromFile()
+	if err != nil {
+		fmt.Println("Wallets file doesn't exist")
+		// wallets.CreateWallet()
+		// wallets.SaveToFile()
+	}
+
+	return &wallets, nil
+}
+
+// checksum generates a checksum for a public key
 func checksum(payload []byte) []byte {
 	firstSHA := sha256.Sum256(payload)
 	secondSHA := sha256.Sum256(firstSHA[:])

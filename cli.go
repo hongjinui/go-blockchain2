@@ -18,14 +18,10 @@ func (cli *CLI) createBlockchain(address string) {
 }
 
 func (cli *CLI) createWallet() {
-	wallet, err := NewWallet()
-	if err == nil {
-		fmt.Printf("Your address : %s\n", wallet.GetAddress())
-		wallet.SaveToFile()
-	} else {
-		fmt.Println(err.Error())
-		os.Exit(1)
-	}
+	wallets, _ := NewWallets()
+	address := wallets.CreateWallet()
+	wallets.SaveToFile()
+	fmt.Printf("Your new address: %s\n", address)
 
 }
 
@@ -44,23 +40,19 @@ func (cli *CLI) getBalance(address string) {
 
 }
 
-func (cli *CLI) printUsage() {
-	fmt.Println("Usage:")
-	fmt.Println("	getbalance -address ADDRESS - Get balance of ADDRESS")
-	fmt.Println("	createblockchain -address ADDRESS - Create a blockchain and send genesis block reward to ADDRESS")
-	fmt.Println("	printchain - print all the blocks of the blockchain")
-	fmt.Println("	send -from FROM -to TO -amunt AMUNT - send AMOUNT of coins from FROM address to TO")
-}
+func (cli *CLI) listAddresses() {
+	wallets, err := NewWallets()
+	if err != nil {
+		log.Panic(err)
+	}
+	addresses := wallets.GetAddresses()
 
-func (cli *CLI) validateArgs() {
-	if len(os.Args) < 2 {
-		cli.printUsage()
-		os.Exit(1)
+	for _, address := range addresses {
+		fmt.Println(address)
 	}
 }
 
 func (cli *CLI) printChain() {
-	// TODO: Fix this
 	bc := NewBlockchain("")
 	defer bc.db.Close()
 
@@ -74,6 +66,9 @@ func (cli *CLI) printChain() {
 
 		pow := NewProofOfWork(block)
 		fmt.Printf("PoW : %s\n", strconv.FormatBool(pow.Vaildate()))
+		for _, tx := range block.Transactions {
+			fmt.Println(tx)
+		}
 		fmt.Println()
 
 		if len(block.PrevBlockHash) == 0 {
@@ -91,12 +86,28 @@ func (cli *CLI) send(from, to string, amount int) {
 	fmt.Println("SUCCESS!")
 }
 
+func (cli *CLI) printUsage() {
+	fmt.Println("Usage:")
+	fmt.Println("	getbalance -address ADDRESS - Get balance of ADDRESS")
+	fmt.Println("	createblockchain -address ADDRESS - Create a blockchain and send genesis block reward to ADDRESS")
+	fmt.Println("	printchain - print all the blocks of the blockchain")
+	fmt.Println("	send -from FROM -to TO -amunt AMUNT - send AMOUNT of coins from FROM address to TO")
+}
+
+func (cli *CLI) validateArgs() {
+	if len(os.Args) < 2 {
+		cli.printUsage()
+		os.Exit(1)
+	}
+}
+
 // Run parses command line arguments and processes commands
 func (cli *CLI) Run() {
 	cli.validateArgs()
 
 	getBalanceCmd := flag.NewFlagSet("getbalance", flag.ExitOnError)
 	createBlockchainCmd := flag.NewFlagSet("createblockchain", flag.ExitOnError)
+	listAddressesCmd := flag.NewFlagSet("listaddresses", flag.ExitOnError)
 	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
 	createWalletCmd := flag.NewFlagSet("createwallet", flag.ExitOnError)
@@ -120,6 +131,11 @@ func (cli *CLI) Run() {
 		}
 	case "createwallet":
 		err := createWalletCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "listaddresses":
+		err := listAddressesCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -152,6 +168,10 @@ func (cli *CLI) Run() {
 		}
 		cli.createBlockchain(*createBlockchainAddress)
 	}
+	if listAddressesCmd.Parsed() {
+		cli.listAddresses()
+	}
+
 	if printChainCmd.Parsed() {
 		cli.printChain()
 	}
