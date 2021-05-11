@@ -21,7 +21,7 @@ const walletFile = "wallet.dat"
 // Wallet stors private and public keys
 type Wallet struct {
 	PrivateKey ecdsa.PrivateKey
-	PublicKey  ecdsa.PublicKey
+	PublicKey  []byte
 }
 
 //Wallets stores a collection of wallets
@@ -31,16 +31,9 @@ type Wallets struct {
 
 // GetAddress returns wallet address
 func (w Wallet) GetAddress() []byte {
-	public := append(w.PublicKey.X.Bytes(), w.PublicKey.Y.Bytes()...)
+	pubKeyHash := HashPubKey(w.PublicKey)
 
-	RIPEMD160Hasher := ripemd160.New()
-	_, err := RIPEMD160Hasher.Write(public)
-	if err != nil {
-		log.Panic(err)
-	}
-	publicRIPEMD160 := RIPEMD160Hasher.Sum(nil)
-
-	versionedPayload := append([]byte{version}, publicRIPEMD160...)
+	versionedPayload := append([]byte{version}, pubKeyHash...)
 	checksum := checksum(versionedPayload)
 
 	fullPayload := append(versionedPayload, checksum...)
@@ -57,13 +50,15 @@ func NewWallet() *Wallet {
 	return &wallet
 }
 
-func newKeyPair() (ecdsa.PrivateKey, ecdsa.PublicKey) {
+func newKeyPair() (ecdsa.PrivateKey, []byte) {
 	curve := elliptic.P256()
 	private, err := ecdsa.GenerateKey(curve, rand.Reader)
 	if err != nil {
 		log.Panic(err)
 	}
-	return *private, private.PublicKey
+
+	pubkey := append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
+	return *private, pubkey
 }
 
 //CreateWallet adds Wallet to Wallets
@@ -126,6 +121,11 @@ func (ws *Wallets) GetAddresses() []string {
 	return addresses
 }
 
+// GetWallet returns a Wallet by its address
+func (ws Wallets) GetWallet(address string) Wallet {
+	return *ws.Wallets[address]
+}
+
 // NewWallets
 func NewWallets() (*Wallets, error) {
 	wallets := Wallets{}
@@ -139,6 +139,20 @@ func NewWallets() (*Wallets, error) {
 	}
 
 	return &wallets, nil
+}
+
+// HashPubKey hashes public key
+func HashPubKey(pubkey []byte) []byte {
+	publicSHA256 := sha256.Sum256(pubkey)
+
+	RIPEMD160Hasher := ripemd160.New()
+	_, err := RIPEMD160Hasher.Write(publicSHA256[:])
+	if err != nil {
+		log.Panic(err)
+	}
+	publicRIPEMD160 := RIPEMD160Hasher.Sum(nil)
+
+	return publicRIPEMD160
 }
 
 // checksum generates a checksum for a public key

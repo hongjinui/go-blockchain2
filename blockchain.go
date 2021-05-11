@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"crypto/ecdsa"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -28,6 +31,12 @@ type BlockchainIterator struct {
 // MineBlock mines a new block with the provided transactions
 func (bc *Blockchain) MineBlock(transactions []*Transaction) {
 	var lastHash []byte
+
+	for _, tx := range transactions {
+		if bc.VerifyTransaction(tx) != true {
+			log.Panic("ERROR : Invalid transaction")
+		}
+	}
 
 	err := bc.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
@@ -59,8 +68,62 @@ func (bc *Blockchain) MineBlock(transactions []*Transaction) {
 
 }
 
+// FindTransaction finds a transaction by its ID
+func (bc *Blockchain) FindTransaction(ID []byte) (Transaction, error) {
+	bci := bc.Iterator()
+
+	for {
+		block := bci.Next()
+
+		for _, tx := range block.Transactions {
+			if bytes.Compare(tx.ID, ID) == 0 {
+				return *tx, nil
+			}
+		}
+
+		if len(block.PrevBlockHash) == 0 {
+			break
+		}
+	}
+
+	return Transaction{}, errors.New("Transaction is not found")
+}
+
+// Signature signs a Transaction
+func (bc *Blockchain) Signature(tx *Transaction, privKey ecdsa.PrivateKey) {
+	prevTXs := make(map[string]Transaction)
+
+	for _, vin := range tx.Vin {
+		prevTX, err := bc.FindTransaction(vin.Txid)
+		if err != nil {
+			log.Panic(err)
+		}
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+
+	tx.Sign(privKey, prevTXs)
+}
+
+// VerifyTransaction verifies transaction
+func (bc *Blockchain) VerifyTransaction(tx *Transaction) bool {
+	prevTXs := make(map[string]Transaction)
+
+	for _, vin := range tx.Vin {
+		prevTX, err := bc.FindTransaction(vin.Txid)
+		if err != nil {
+			log.Panic(err)
+		}
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+
+	for _, tx := range prevTXs {
+		fmt.Println(tx)
+	}
+	return tx.Verify(prevTXs)
+}
+
 // FindUnspentTransaction returns a list of transactions containing unspent outputs
-func (bc *Blockchain) FindUnspentTransaction(address string) []Transaction {
+func (bc *Blockchain) FindUnspentTransaction(pubKeyHash []byte) []Transaction {
 
 	var unspentTXs []Transaction
 	spentTXOs := make(map[string][]int)
@@ -83,13 +146,13 @@ func (bc *Blockchain) FindUnspentTransaction(address string) []Transaction {
 					}
 				}
 
-				if out.CanBeUnlockedWith(address) {
+				if out.Unlock(pubKeyHash) {
 					unspentTXs = append(unspentTXs, *tx)
 				}
 			}
 			if tx.IsCoinbase() == false {
 				for _, in := range tx.Vin {
-					if in.CanUnLockOutputWith(address) {
+					if in.UnlocksOutputWith(pubKeyHash) {
 						inTxID := hex.EncodeToString(in.Txid)
 						spentTXOs[inTxID] = append(spentTXOs[inTxID], in.Vout)
 					}
@@ -104,13 +167,13 @@ func (bc *Blockchain) FindUnspentTransaction(address string) []Transaction {
 }
 
 // FindUTXO finds and returns all unspent tansaction outputs
-func (bc *Blockchain) FindUTXO(address string) []TXOutput {
+func (bc *Blockchain) FindUTXO(pubKeyHash []byte) []TXOutput {
 	var UTXOs []TXOutput
-	unspentTransactions := bc.FindUnspentTransaction(address)
+	unspentTransactions := bc.FindUnspentTransaction(pubKeyHash)
 
 	for _, tx := range unspentTransactions {
 		for _, out := range tx.Vout {
-			if out.CanBeUnlockedWith(address) {
+			if out.Unlock(pubKeyHash) {
 				UTXOs = append(UTXOs, out)
 			}
 		}
@@ -119,9 +182,9 @@ func (bc *Blockchain) FindUTXO(address string) []TXOutput {
 }
 
 // FindSpendableOutputs finds and returns unspent outputs to reference in inputs
-func (bc *Blockchain) FindSpendableOutputs(address string, amount int) (int, map[string][]int) {
+func (bc *Blockchain) FindSpendableOutputs(pubKeyHash []byte, amount int) (int, map[string][]int) {
 	unspentOutputs := make(map[string][]int)
-	unspentTXs := bc.FindUnspentTransaction(address)
+	unspentTXs := bc.FindUnspentTransaction(pubKeyHash)
 	accumulated := 0
 
 	//TODO: fix
@@ -133,7 +196,7 @@ Work:
 		txid := hex.EncodeToString(tx.ID)
 
 		for outid, out := range tx.Vout {
-			if out.CanBeUnlockedWith(address) && accumulated < amount {
+			if out.Unlock(pubKeyHash) && accumulated < amount {
 				accumulated += out.Value
 				unspentOutputs[txid] = append(unspentOutputs[txid], outid)
 				if accumulated >= amount {
