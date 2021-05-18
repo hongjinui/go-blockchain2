@@ -7,3 +7,4 @@ A blockchain implementation in Go, as described in these articles:
 3. [Persistence and CLI](https://jeiwan.cc/posts/building-blockchain-in-go-part-3/)
 4. [Transactions 1](https://jeiwan.cc/posts/building-blockchain-in-go-part-4/)
 5. [Addresses](https://jeiwan.cc/posts/building-blockchain-in-go-part-5/)
+6. [Transactions 2](https://jeiwan.cc/posts/building-blockchain-in-go-part-6/)
