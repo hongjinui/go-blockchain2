@@ -6,7 +6,7 @@ import (
 )
 
 func (cli *CLI) printChain() {
-	bc := NewBlockchain("")
+	bc := NewBlockchain()
 	defer bc.db.Close()
 
 	bci := bc.Iterator()
@@ -21,8 +21,8 @@ func (cli *CLI) printChain() {
 		fmt.Printf("PoW : %s\n\n", strconv.FormatBool(pow.Vaildate()))
 		for _, tx := range block.Transactions {
 			fmt.Println(tx)
+			fmt.Println("\n\n")
 		}
-		fmt.Println("\n\n")
 
 		if len(block.PrevBlockHash) == 0 {
 			break
