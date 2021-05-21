@@ -10,6 +10,8 @@ import (
 	"os"
 )
 
+const walletFile = "wallet_%s.dat"
+
 //Wallets stores a collection of wallets
 type Wallets struct {
 	Wallets map[string]*Wallet
@@ -81,7 +83,7 @@ func (ws Wallets) GetWallet(address string) Wallet {
 }
 
 // NewWallets
-func NewWallets() (*Wallets, error) {
+func NewWallets(nodeID string) (*Wallets, error) {
 	wallets := Wallets{}
 	wallets.Wallets = make(map[string]*Wallet)
 

@@ -1,9 +1,16 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"log"
+)
 
-func (cli *CLI) createBlockchain(address string) {
-	bc := CreateBlockchain(address)
+func (cli *CLI) createBlockchain(address, nodeID string) {
+	if !ValidateAddress(address) {
+		log.Panic("EEROR : Address is not valid")
+	}
+
+	bc := CreateBlockchain(address, nodeID)
 	defer bc.db.Close()
 
 	UTXOSet := UTXOSet{bc}

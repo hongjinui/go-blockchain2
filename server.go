@@ -22,6 +22,26 @@ type addr struct {
 	AddrList []string
 }
 
+type block struct {
+	AddrFrom string
+	Block    []byte
+}
+
+type getblocks struct {
+	AddrFrom string
+}
+
+type getdata struct {
+	AddrFrom string
+	Type     string
+	ID       []byte
+}
+type inv struct {
+	AddrFrom string
+	Type     string
+	Items    [][]byte
+}
+
 type verzion struct {
 	Version  int
 	AddrFrom string
@@ -56,6 +76,12 @@ func extractCommand(request []byte) []byte {
 	return request[:commandLength]
 }
 
+func reqeustBlocks() {
+	for _, node := range knownNodes {
+		sendGetBlocks(node)
+	}
+}
+
 func sendAddr(address string) {
 	nodes := addr{knownNodes}
 	nodes.AddrList = append(nodes.AddrList, nodeAddress)
@@ -63,6 +89,14 @@ func sendAddr(address string) {
 	request := append(commandToBytes("addr"), payload...)
 
 	sendData(address, request)
+}
+
+func sendBlock(addr string, b *Block) {
+	data := block{nodeAddress, b.Serialize()}
+	payload := gobEncode(data)
+	request := append(commandToBytes("inv"), payload...)
+
+	sendData(addr, request)
 }
 
 func sendData(addr string, data []byte) {
@@ -79,6 +113,29 @@ func sendData(addr string, data []byte) {
 	if err != nil {
 		log.Panic(err)
 	}
+}
+
+func sendInv(address, kind string, items [][]byte) {
+	inventory := inv{nodeAddress, kind, items}
+	payload := gobEncode(inventory)
+	request := append(commandToBytes("inv"), payload...)
+
+	sendData(address, request)
+}
+
+func sendGetBlocks(address string) {
+	payload := gobEncode(getblocks{nodeAddress})
+	request := append(commandToBytes("getblocks"), payload...)
+
+	sendData(address, request)
+}
+
+func sendGetData(address, kind string, id []byte) {
+	payload := gobEncode(getdata{nodeAddress, kind, id})
+
+	request := append(commandToBytes("getdata"), payload...)
+
+	sendData(address, request)
 }
 
 func sendVersion(addr string) {
@@ -114,6 +171,84 @@ func handleAddr(request []byte) {
 
 }
 
+func handleBlock(request []byte, bc *Blockchain) {
+	var buff bytes.Buffer
+	var payload block
+
+	buff.Write(request[commandLength:])
+	dec := gob.NewDecoder(&buff)
+	err := dec.Decode(&payload)
+
+	if err != nil {
+		log.Panic(err)
+	}
+
+	blockData := payload.Block
+	block := DeserializeBlock(blockData)
+
+	fmt.Println("Recevied a new block!")
+	bc.AddBlock(block)
+
+}
+
+func handleInv(request []byte, bc *Blockchain) {
+	var buff bytes.Buffer
+	var payload inv
+
+	buff.Write(request[commandLength:])
+	dec := gob.NewDecoder(&buff)
+	err := dec.Decode(&payload)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	fmt.Printf("Received %d %s\n", len(payload.Items), payload.Type)
+
+	blocks := bc.GetBlockHashes()
+
+	if len(blocks) < len(payload.Items) {
+		for _, blockHash := range payload.Items {
+			sendGetData(payload.AddrFrom, "block", blockHash)
+		}
+	}
+}
+
+func handleGetBlocks(reqeust []byte, bc *Blockchain) {
+	var buff bytes.Buffer
+	var payload getblocks
+
+	buff.Write(reqeust[commandLength:])
+	dec := gob.NewDecoder(&buff)
+	err := dec.Decode(&payload)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	blocks := bc.GetBlockHashes()
+	sendInv(payload.AddrFrom, "blocks", blocks)
+}
+
+func handleGetData(request []byte, bc *Blockchain) {
+	var buff bytes.Buffer
+	var payload getdata
+
+	buff.Write(request[commandLength:])
+	dec := gob.NewDecoder(&buff)
+	err := dec.Decode(&payload)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	if payload.Type == "block" {
+		block, err := bc.GetBlock([]byte(payload.ID))
+		if err != nil {
+			log.Panic(err)
+		}
+
+		sendBlock(payload.AddrFrom, &block)
+	}
+}
+
 func handleVersion(request []byte) {
 	var buff bytes.Buffer
 	var payload verzion
@@ -130,7 +265,7 @@ func handleVersion(request []byte) {
 	knownNodes = append(knownNodes, payload.AddrFrom)
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, bc *Blockchain) {
 	request, err := ioutil.ReadAll(conn)
 	if err != nil {
 		log.Panic(err)
@@ -142,6 +277,14 @@ func handleConnection(conn net.Conn) {
 	switch command {
 	case "addr":
 		handleAddr(request)
+	case "block":
+		handleBlock(request, bc)
+	case "inv":
+		handleInv(request, bc)
+	case "getblocks":
+		handleGetBlocks(request, bc)
+	case "getdata":
+		handleGetData(request, bc)
 	case "version":
 		handleVersion(request)
 	case "verack":
@@ -167,13 +310,15 @@ func StartServer(nodeID string) {
 		sendVersion(fmt.Sprintf("localhost:%s", dnsNodeID))
 	}
 
+	bc := NewBlockchain(nodeID)
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Panic(err)
 		}
 
-		go handleConnection(conn)
+		go handleConnection(conn, bc)
 	}
 }
 
